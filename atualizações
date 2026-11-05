@@ -1,0 +1,22 @@
+# Relatório de Investigação: Vulnerabilidade de Horário Local vs. Global 
+
+**Data da Auditoria:** 05 de Novembro de 2026
+**Objetivo:** Mapear a fragilidade atual do sistema Kontado quanto à divergência de horários entre o SQLite (Local) e o PostgreSQL (Global), em preparação para o ensaio prático de 2 dispositivos.
+
+## 1. O Fluxo de Horário Local no Aplicativo
+Durante a operação offline, o aplicativo gera as datas e horas com base no relógio do sistema operacional do dispositivo (Horário Local). O rastreamento do código demonstrou que:
+* Em `core/database/client.ts`, o método `createPendingPullData` extrai os registros do SQLite mantendo intactas todas as datas de auditoria geradas pelo aparelho (`createdAt`, `updatedAt`, `timestamp`).
+* Em `core/sync/sync.controller.ts` (App) e `api.client.ts`, este pacote de dados não sofre nenhuma transformação temporal antes do envio via `POST /api/sync`.
+
+## 2. A Falha Encontrada na API (Confiança Cega no Cliente)
+Ao inspecionar o controlador da API (`src/controllers/sync.controller.ts`), identificamos que o servidor confia exclusivamente no Horário Local do dispositivo para a persistência e resolução de conflitos, ignorando o Horário Global da nuvem na maioria das operações.
+
+**Evidência no Código (Exemplo de Gastos Gerais - Linhas 337 a 363):**
+O `upsert` no Prisma insere diretamente a data vinda da requisição:
+```typescript
+const generalExpenseCreateInput: Prisma.GeneralExpenseCreateInput = {
+    ...data, 
+    createdAt: new Date(data.createdAt), // <-- FALHA: Data vinda do aparelho
+    updatedAt: new Date(data.updatedAt), // <-- FALHA: Data vinda do aparelho
+    // ...
+};
